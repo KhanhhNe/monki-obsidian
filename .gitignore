@@ -11,6 +11,9 @@ node_modules
 # Generated plugin bundle
 main.js
 
+# Packaged plugin release
+release/
+
 # Sourcemaps
 *.map
 

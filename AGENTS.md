@@ -13,6 +13,7 @@
 npm install
 npm run dev
 npm run build
+npm run build:zip
 npm run lint
 obsidian plugin:reload id=monki-obsidian
 ```
