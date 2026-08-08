@@ -1,48 +1,432 @@
-.monki-outline-list {
-	padding: var(--size-4-1) 0;
-}
-
-.monki-outline-item .tree-item-self {
-	--monki-outline-indent: calc(
-		var(--size-4-2) + var(--monki-outline-depth, 0) * var(--size-4-3)
-	);
-	padding-inline-start: var(--monki-outline-indent);
-}
-
-.monki-outline-depth-0 {
-	--monki-outline-depth: 0;
-}
-
-.monki-outline-depth-1 {
-	--monki-outline-depth: 1;
-}
-
-.monki-outline-depth-2 {
-	--monki-outline-depth: 2;
-}
-
-.monki-outline-depth-3 {
-	--monki-outline-depth: 3;
-}
-
-.monki-outline-depth-4 {
-	--monki-outline-depth: 4;
-}
-
-.monki-outline-depth-5,
-.monki-outline-depth-6 {
-	--monki-outline-depth: 5;
-}
-
 .monki-outline-link .tree-item-inner {
+	text-decoration: underline;
+}
+
+.monki-outline-heading > .tree-item-self.is-active,
+.monki-outline-link > .tree-item-self.is-active {
+	border-start-start-radius: var(--radius-s);
+	border-end-start-radius: var(--radius-s);
+}
+
+.monki-outline-empty {
+	display: flex;
+	min-height: 240px;
+	padding: var(--size-4-8) var(--size-4-4);
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: var(--size-4-3);
+	text-align: center;
+}
+
+.monki-outline-empty-image {
+	display: block;
+	width: min(148px, 70%);
+	height: auto;
+	filter: drop-shadow(
+		0 8px 12px color-mix(in srgb, var(--text-normal) 10%, transparent)
+	);
+	user-select: none;
+}
+
+.monki-outline-empty-text {
+	margin: 0;
+	color: var(--text-muted);
+	font-size: var(--font-text-size);
+	font-weight: var(--font-semibold);
+	line-height: var(--line-height-normal);
+}
+
+.monki-outline-heading > .tree-item-self .collapse-icon svg,
+.monki-outline-link > .tree-item-self .collapse-icon svg {
+	transform: rotate(0deg);
+	transform-origin: center;
+	transition: transform 180ms ease;
+}
+
+.monki-outline-heading.is-collapsed > .tree-item-self .collapse-icon svg,
+.monki-outline-link.is-collapsed > .tree-item-self .collapse-icon svg {
+	transform: rotate(-90deg);
+}
+
+.monki-outline-heading > .tree-item-children,
+.monki-outline-link > .tree-item-children {
+	display: grid !important;
+	grid-template-rows: 1fr;
+	transition:
+		grid-template-rows 200ms ease,
+		opacity 160ms ease;
+}
+
+.monki-outline-children-inner {
+	min-height: 0;
+	overflow: visible;
+	clip-path: inset(0 0 0 -100vw);
+}
+
+.monki-outline-children-inner > .tree-item {
+	opacity: 1;
+	transform: translateY(0);
+	transition:
+		opacity 150ms ease,
+		transform 200ms ease;
+}
+
+.monki-outline-heading.is-collapsed > .tree-item-children,
+.monki-outline-link.is-collapsed > .tree-item-children {
+	grid-template-rows: 0fr;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.monki-outline-heading.is-collapsed
+	> .tree-item-children
+	> .monki-outline-children-inner
+	> .tree-item,
+.monki-outline-link.is-collapsed
+	> .tree-item-children
+	> .monki-outline-children-inner
+	> .tree-item {
+	opacity: 0;
+	transform: translateY(-6px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monki-outline-heading > .tree-item-self .collapse-icon svg,
+	.monki-outline-link > .tree-item-self .collapse-icon svg,
+	.monki-outline-heading > .tree-item-children,
+	.monki-outline-link > .tree-item-children,
+	.monki-outline-children-inner > .tree-item {
+		transition: none;
+	}
+}
+
+.monki-mood-calendar {
+	--monki-blush: color-mix(
+		in srgb,
+		var(--color-pink) 12%,
+		var(--background-primary)
+	);
+	--monki-lilac: color-mix(
+		in srgb,
+		var(--color-purple) 10%,
+		var(--background-primary)
+	);
+	min-height: 100%;
+	padding: clamp(var(--size-4-4), 4%, var(--size-4-12));
+	background-color: var(--background-primary);
+	background-image: linear-gradient(
+		135deg,
+		var(--monki-blush),
+		var(--monki-lilac)
+	);
+}
+
+.monki-mood-calendar-toolbar,
+.monki-mood-calendar-grid {
+	width: min(100%, 960px);
+	margin-inline: auto;
+}
+
+.monki-mood-calendar-toolbar {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	margin-bottom: var(--size-4-6);
+	padding: var(--size-4-2) var(--size-4-3);
+	border: 1px solid
+		color-mix(
+			in srgb,
+			var(--color-pink) 24%,
+			var(--background-modifier-border)
+		);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--background-primary) 88%, transparent);
+	box-shadow:
+		0 8px 24px color-mix(in srgb, var(--color-purple) 8%, transparent),
+		inset 0 1px 0 color-mix(in srgb, white 50%, transparent);
+}
+
+.monki-mood-calendar-title {
+	min-width: 0;
+	margin: 0;
+	font-size: var(--font-text-size);
+	font-weight: var(--font-bold);
+	letter-spacing: 0;
+	text-align: center;
+	flex: 1;
+	color: color-mix(in srgb, var(--color-pink) 45%, var(--text-normal));
+}
+
+.monki-mood-calendar-nav {
+	width: var(--size-4-8);
+	height: var(--size-4-8);
+	flex: 0 0 var(--size-4-8);
+	border-radius: 50%;
 	color: var(--text-muted);
 }
 
-.monki-outline-link .tree-item-self {
-	padding-inline-start: calc(var(--monki-outline-indent) + var(--size-4-4));
+.monki-mood-calendar-nav:hover,
+.monki-mood-calendar-nav:focus-visible {
+	background: color-mix(
+		in srgb,
+		var(--color-pink) 12%,
+		var(--background-primary)
+	);
+	color: color-mix(in srgb, var(--color-pink) 55%, var(--text-normal));
 }
 
-.monki-outline-item .tree-item-self.is-active {
-	background-color: var(--background-modifier-hover);
-	color: var(--text-accent);
+.monki-mood-calendar-today {
+	min-height: var(--size-4-8);
+	padding-inline: var(--size-4-3);
+	border-color: color-mix(in srgb, var(--color-pink) 32%, transparent);
+	background: color-mix(
+		in srgb,
+		var(--color-pink) 10%,
+		var(--background-primary)
+	);
+	color: color-mix(in srgb, var(--color-pink) 58%, var(--text-normal));
+	font-weight: var(--font-semibold);
+}
+
+.monki-mood-calendar-grid {
+	display: grid;
+	grid-template-columns: repeat(7, minmax(0, 1fr));
+	gap: 8px;
+}
+
+.monki-mood-weekday {
+	padding: var(--size-4-1) var(--size-4-1) var(--size-4-2);
+	border-bottom: 1px solid
+		color-mix(in srgb, var(--color-pink) 20%, transparent);
+	color: var(--text-muted);
+	font-size: var(--font-text-size);
+	font-weight: var(--font-semibold);
+	letter-spacing: 0;
+	text-align: center;
+}
+
+.monki-mood-day,
+.monki-mood-day-placeholder {
+	min-width: 0;
+	min-height: 96px;
+	background: color-mix(
+		in srgb,
+		var(--background-primary) 94%,
+		var(--color-pink)
+	);
+	border-radius: 8px;
+}
+
+.monki-mood-day-placeholder {
+	visibility: hidden;
+}
+
+.monki-mood-calendar .monki-mood-day {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	justify-content: center;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2);
+	border: 1px solid
+		color-mix(
+			in srgb,
+			var(--color-pink) 12%,
+			var(--background-modifier-border)
+		);
+	border-radius: 8px;
+	box-shadow:
+		0 3px 10px color-mix(in srgb, var(--color-purple) 5%, transparent),
+		inset 0 1px 0 color-mix(in srgb, white 35%, transparent);
+	color: var(--text-normal);
+	cursor: pointer;
+	transition:
+		background-color 140ms ease,
+		border-color 140ms ease,
+		box-shadow 140ms ease,
+		transform 140ms ease;
+	animation: monki-mood-day-enter 180ms ease-out both;
+}
+
+.monki-mood-calendar .monki-mood-day:nth-child(7n + 1) .monki-mood-day-number,
+.monki-mood-calendar .monki-mood-day:nth-child(7n) .monki-mood-day-number {
+	color: var(--color-pink);
+	font-weight: var(--font-semibold);
+}
+
+.monki-mood-calendar .monki-mood-day:hover,
+.monki-mood-calendar .monki-mood-day:focus-visible {
+	border-color: color-mix(
+		in srgb,
+		var(--interactive-accent) 45%,
+		transparent
+	);
+	background: color-mix(
+		in srgb,
+		var(--interactive-accent) 7%,
+		var(--background-primary)
+	);
+	box-shadow: 0 7px 16px
+		color-mix(in srgb, var(--color-purple) 12%, transparent);
+	transform: translateY(-2px);
+}
+
+.monki-mood-calendar .monki-mood-day.has-mood {
+	border-color: color-mix(in srgb, var(--color-pink) 28%, transparent);
+	background: linear-gradient(
+		145deg,
+		color-mix(in srgb, var(--color-pink) 14%, var(--background-primary)),
+		color-mix(in srgb, var(--color-purple) 8%, var(--background-primary))
+	);
+}
+
+.monki-mood-calendar .monki-mood-day.has-mood:hover,
+.monki-mood-calendar .monki-mood-day.has-mood:focus-visible {
+	border-color: color-mix(in srgb, var(--color-pink) 48%, transparent);
+	background: linear-gradient(
+		145deg,
+		color-mix(in srgb, var(--color-pink) 20%, var(--background-primary)),
+		color-mix(in srgb, var(--color-purple) 11%, var(--background-primary))
+	);
+}
+
+.monki-mood-calendar .monki-mood-day.is-today {
+	--monki-today-blue: color-mix(in srgb, var(--color-blue) 30%, white);
+	--monki-today-border: color-mix(in srgb, var(--color-blue) 55%, white);
+	--monki-today-text: color-mix(in srgb, var(--color-blue) 75%, black);
+	border-color: var(--monki-today-border);
+	box-shadow:
+		inset 0 0 0 1px var(--monki-today-border),
+		0 2px 6px color-mix(in srgb, var(--color-blue) 14%, transparent);
+}
+
+.monki-mood-day-number {
+	align-self: flex-start;
+	font-size: var(--font-text-size);
+	font-weight: var(--font-medium);
+	font-variant-numeric: tabular-nums;
+}
+
+.monki-mood-calendar .monki-mood-day.is-today .monki-mood-day-number {
+	padding: 1px var(--size-4-2);
+	border-radius: var(--radius-s);
+	background: var(--monki-today-blue);
+	color: var(--monki-today-text);
+	font-weight: var(--font-bold);
+}
+
+.monki-mood-day-value {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--size-4-1);
+	min-height: 2.5rem;
+	min-width: 0;
+	text-align: center;
+}
+
+.monki-mood-day-icon {
+	display: grid;
+	place-items: center;
+	width: var(--size-4-7);
+	height: var(--size-4-7);
+	border-radius: 50%;
+	background: color-mix(
+		in srgb,
+		var(--color-pink) 18%,
+		var(--background-primary)
+	);
+	box-shadow: 0 3px 8px color-mix(in srgb, var(--color-pink) 12%, transparent);
+	font-size: 25px;
+	line-height: 1;
+	filter: saturate(1.08);
+}
+
+.monki-mood-day-icon:empty {
+	background: color-mix(
+		in srgb,
+		var(--color-pink) 5%,
+		var(--background-primary)
+	);
+	box-shadow: none;
+}
+
+.monki-mood-day-text {
+	display: -webkit-box;
+	max-width: 100%;
+	overflow: hidden;
+	font-size: var(--font-text-size);
+	font-weight: var(--font-medium);
+	line-height: 1.25;
+	text-align: center;
+	overflow-wrap: anywhere;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+}
+
+@keyframes monki-mood-day-enter {
+	from {
+		opacity: 0;
+		transform: translateY(3px);
+	}
+
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monki-mood-day {
+		animation: none;
+		transition: none;
+	}
+}
+
+@media (max-width: 600px) {
+	.monki-mood-calendar {
+		padding: var(--size-4-3) var(--size-4-2);
+	}
+
+	.monki-mood-calendar-toolbar {
+		gap: var(--size-4-1);
+		margin-bottom: var(--size-4-3);
+		padding: var(--size-4-1);
+	}
+
+	.monki-mood-calendar-title {
+		font-size: var(--font-text-size);
+	}
+
+	.monki-mood-calendar-today {
+		padding-inline: var(--size-4-2);
+	}
+
+	.monki-mood-day,
+	.monki-mood-day-placeholder {
+		min-height: 64px;
+	}
+
+	.monki-mood-calendar-grid {
+		gap: 2px;
+	}
+
+	.monki-mood-day {
+		padding: var(--size-4-1);
+	}
+
+	.monki-mood-day-value {
+		min-height: 2rem;
+		gap: 2px;
+	}
+
+	.monki-mood-day-icon {
+		font-size: var(--font-text-size);
+	}
+
+	.monki-mood-day-text {
+		font-size: var(--font-text-size);
+	}
 }

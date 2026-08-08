@@ -2,7 +2,7 @@
 	"id": "monki-obsidian",
 	"name": "Monki",
 	"version": "1.0.0",
-	"minAppVersion": "1.0.0",
+	"minAppVersion": "1.4.4",
 	"description": "Adds a synchronized outline for headings and page links, plus quick checkbox editing shortcuts.",
 	"author": "Khanh Luong",
 	"isDesktopOnly": false

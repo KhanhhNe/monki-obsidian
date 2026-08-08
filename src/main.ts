@@ -1,17 +1,30 @@
-import { MarkdownView, Plugin } from 'obsidian';
+import { MarkdownView, normalizePath, Plugin } from 'obsidian';
 import { checkboxShortcuts } from './checkbox-shortcuts';
 import {
 	MONKI_OUTLINE_VIEW_TYPE,
 	MonkiOutlineView,
 	processRenderedOutlineSection,
 } from './monki-outline-view';
+import {
+	MOOD_CALENDAR_VIEW_TYPE,
+	MoodCalendarView,
+} from './mood-calendar-view';
 
 export default class MonkiPlugin extends Plugin {
 	onload() {
 		this.registerEditorExtension(checkboxShortcuts);
+		this.registerView(MONKI_OUTLINE_VIEW_TYPE, (leaf) => {
+			const pluginDirectory =
+				this.manifest.dir ??
+				`${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+			const emptyStateImageUrl = this.app.vault.adapter.getResourcePath(
+				normalizePath(`${pluginDirectory}/assets/outline-dog.png`),
+			);
+			return new MonkiOutlineView(leaf, emptyStateImageUrl);
+		});
 		this.registerView(
-			MONKI_OUTLINE_VIEW_TYPE,
-			(leaf) => new MonkiOutlineView(leaf),
+			MOOD_CALENDAR_VIEW_TYPE,
+			(leaf) => new MoodCalendarView(leaf),
 		);
 		this.registerMarkdownPostProcessor((element, context) => {
 			processRenderedOutlineSection(this.app, element, context);
@@ -50,6 +63,25 @@ export default class MonkiPlugin extends Plugin {
 					this.app.workspace.rightSplit.expand();
 					this.app.workspace.setActiveLeaf(leaf, { focus: true });
 				}
+			},
+		});
+
+		this.addCommand({
+			id: 'show-mood-calendar',
+			name: 'Show mood calendar',
+			callback: async () => {
+				let leaf = this.app.workspace.getLeavesOfType(
+					MOOD_CALENDAR_VIEW_TYPE,
+				)[0];
+				if (!leaf) {
+					leaf = this.app.workspace.getLeaf('tab');
+					await leaf.setViewState({
+						type: MOOD_CALENDAR_VIEW_TYPE,
+						active: true,
+					});
+				}
+
+				this.app.workspace.setActiveLeaf(leaf, { focus: true });
 			},
 		});
 	}

@@ -74,9 +74,9 @@ export function processRenderedOutlineSection(
 						item.link === element.dataset.href,
 				);
 				const line = link?.position.start.line ?? sectionInfo.lineStart;
-				const parentHeading = [...headings].reverse().find(
-					(heading) => heading.position.start.line <= line,
-				);
+				const parentHeading = [...headings]
+					.reverse()
+					.find((heading) => heading.position.start.line <= line);
 				return {
 					depth: Math.min(parentHeading?.level ?? 1, 6),
 					line,
@@ -131,7 +131,9 @@ function isPageOrFolderLink(
 		return true;
 	}
 
-	const directTarget = app.vault.getAbstractFileByPath(normalizePath(linkpath));
+	const directTarget = app.vault.getAbstractFileByPath(
+		normalizePath(linkpath),
+	);
 	if (directTarget instanceof TFolder) {
 		return true;
 	}
@@ -186,7 +188,8 @@ function processRenderedOutlineDocument(
 			const level = Number(element.tagName.slice(1));
 			const headingIndex = remainingHeadings.findIndex(
 				(heading) =>
-					heading.level === level && heading.heading === element.innerText,
+					heading.level === level &&
+					heading.heading === element.innerText,
 			);
 			const heading =
 				headingIndex === -1
@@ -211,6 +214,7 @@ export class MonkiOutlineView extends ItemView {
 	private outlineEl?: HTMLDivElement;
 	private pinnedTarget?: OutlineEntry;
 	private renderedEntries: { entry: OutlineEntry; rowEl: HTMLElement }[] = [];
+	private readonly collapsedEntriesBySource = new Map<string, Set<string>>();
 	private selectedSourcePath?: string;
 	private sourceView?: MarkdownView;
 	private editorChangeTimer?: number;
@@ -218,7 +222,10 @@ export class MonkiOutlineView extends ItemView {
 	private readonly observedSourceViews = new WeakSet<MarkdownView>();
 	private readonly userScrollIntentViews = new WeakSet<MarkdownView>();
 
-	constructor(leaf: WorkspaceLeaf) {
+	constructor(
+		leaf: WorkspaceLeaf,
+		private readonly emptyStateImageUrl: string,
+	) {
 		super(leaf);
 	}
 
@@ -236,11 +243,10 @@ export class MonkiOutlineView extends ItemView {
 
 	async onOpen() {
 		this.contentEl.empty();
-		this.outlineEl = this.contentEl.createDiv({
-			cls: 'monki-outline-list',
-		});
+		this.outlineEl = this.contentEl.createDiv();
 		this.registerDomEvent(this.outlineEl, 'click', (event) => {
-			const rowEl = (event.target as HTMLElement).closest<HTMLElement>(
+			const target = event.target as HTMLElement;
+			const rowEl = target.closest<HTMLElement>(
 				'.tree-item-self[data-line]',
 			);
 			if (!rowEl || !this.outlineEl?.contains(rowEl)) {
@@ -254,6 +260,10 @@ export class MonkiOutlineView extends ItemView {
 			if (!renderedEntry) {
 				return;
 			}
+			if (target.closest('.tree-item-icon.collapse-icon.is-clickable')) {
+				this.toggleCollapsed(renderedEntry.entry);
+				return;
+			}
 
 			this.pinnedTarget = renderedEntry.entry;
 			this.sourceView?.currentMode.applyScroll(line);
@@ -261,8 +271,18 @@ export class MonkiOutlineView extends ItemView {
 		});
 		this.registerEvent(
 			this.app.workspace.on('active-leaf-change', (leaf) => {
-				if (leaf?.view instanceof MarkdownView) {
+				if (
+					!leaf ||
+					leaf === this.leaf ||
+					leaf.getRoot() !== this.app.workspace.rootSplit
+				) {
+					return;
+				}
+
+				if (leaf.view instanceof MarkdownView && leaf.view.file) {
 					this.setSourceView(leaf.view);
+				} else {
+					this.clearSourceView();
 				}
 			}),
 		);
@@ -300,12 +320,41 @@ export class MonkiOutlineView extends ItemView {
 		);
 		this.register(() => window.clearTimeout(this.editorChangeTimer));
 
-		const markdownView =
-			this.app.workspace.getActiveViewOfType(MarkdownView) ??
-			this.app.workspace.getLeavesOfType('markdown')[0]?.view;
-		if (markdownView) {
-			this.setSourceView(markdownView as MarkdownView);
+		this.app.workspace.onLayoutReady(() => {
+			if (this.sourceView) {
+				return;
+			}
+
+			const markdownView = this.getInitialSourceView();
+			if (markdownView) {
+				this.setSourceView(markdownView);
+			} else {
+				this.renderOutline();
+			}
+		});
+	}
+
+	private getInitialSourceView() {
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (activeView?.file) {
+			return activeView;
 		}
+
+		const recentView = this.app.workspace.getMostRecentLeaf(
+			this.app.workspace.rootSplit,
+		)?.view;
+		if (recentView instanceof MarkdownView && recentView.file) {
+			return recentView;
+		}
+
+		return this.app.workspace
+			.getLeavesOfType('markdown')
+			.filter((leaf) => leaf.getRoot() === this.app.workspace.rootSplit)
+			.map((leaf) => leaf.view)
+			.find(
+				(view): view is MarkdownView =>
+					view instanceof MarkdownView && view.file !== null,
+			);
 	}
 
 	setSourceView(view: MarkdownView) {
@@ -323,6 +372,16 @@ export class MonkiOutlineView extends ItemView {
 		}
 	}
 
+	private clearSourceView() {
+		window.clearTimeout(this.editorChangeTimer);
+		this.editorChangeTimer = undefined;
+		this.sourceRenderGeneration++;
+		this.sourceView = undefined;
+		this.selectedSourcePath = undefined;
+		this.pinnedTarget = undefined;
+		this.renderOutline();
+	}
+
 	refreshSource(sourcePath: string) {
 		if (sourcePath === this.selectedSourcePath) {
 			this.renderOutline();
@@ -333,46 +392,164 @@ export class MonkiOutlineView extends ItemView {
 		this.outlineEl?.empty();
 		this.renderedEntries = [];
 
-		if (!this.outlineEl || !this.selectedSourcePath) {
+		if (!this.outlineEl) {
+			return;
+		}
+		if (!this.selectedSourcePath) {
+			this.renderEmptyState();
 			return;
 		}
 
 		const sections = sectionsBySource.get(this.selectedSourcePath);
-		for (const section of [...(sections?.values() ?? [])].sort(
-			(left, right) => left.lineStart - right.lineStart,
-		)) {
-			for (const entry of section.entries) {
-				const treeItemEl = this.outlineEl.createDiv({
-					cls: `tree-item monki-outline-item monki-outline-${entry.type} monki-outline-depth-${entry.depth}`,
+		const entries = [...(sections?.values() ?? [])]
+			.sort((left, right) => left.lineStart - right.lineStart)
+			.flatMap((section) => section.entries);
+		if (entries.length === 0) {
+			this.renderEmptyState();
+			return;
+		}
+		const collapsedEntries =
+			this.collapsedEntriesBySource.get(this.selectedSourcePath) ??
+			new Set();
+		const parentStack: {
+			childrenEl: HTMLElement;
+			depth: number;
+		}[] = [{ childrenEl: this.outlineEl, depth: -1 }];
+		for (const [index, entry] of entries.entries()) {
+			const hasChildren = (entries[index + 1]?.depth ?? -1) > entry.depth;
+			const isCollapsed =
+				hasChildren && collapsedEntries.has(this.getEntryKey(entry));
+			while (parentStack.at(-1)!.depth >= entry.depth) {
+				parentStack.pop();
+			}
+			const treeItemEl = parentStack.at(-1)!.childrenEl.createDiv({
+				cls: `tree-item monki-outline-${entry.type}${isCollapsed ? ' is-collapsed' : ''}`,
+			});
+			const rowEl = treeItemEl.createDiv({
+				cls: `tree-item-self is-clickable${hasChildren ? ' mod-collapsible' : ''}`,
+				attr: { 'data-line': String(entry.line) },
+			});
+			if (hasChildren) {
+				const collapseIconEl = rowEl.createDiv({
+					cls: 'tree-item-icon collapse-icon is-clickable',
+					attr: {
+						'aria-expanded': String(!isCollapsed),
+						'aria-label': isCollapsed
+							? 'Expand item'
+							: 'Collapse item',
+						role: 'button',
+					},
 				});
-				const rowEl = treeItemEl.createDiv({
-					cls: 'tree-item-self is-clickable',
-					attr: { 'data-line': String(entry.line) },
+				setIcon(collapseIconEl, 'chevron-down');
+			}
+			rowEl.createDiv({
+				cls: 'tree-item-inner',
+				text: entry.text,
+			});
+			const rowIndent =
+				rowEl.getBoundingClientRect().left -
+				this.outlineEl.getBoundingClientRect().left;
+			rowEl.style.setProperty(
+				'margin-inline-start',
+				`${-rowIndent}px`,
+				'important',
+			);
+			rowEl.style.setProperty(
+				'padding-inline-start',
+				`${24 + rowIndent}px`,
+				'important',
+			);
+			this.renderedEntries.push({ entry, rowEl });
+			if (hasChildren) {
+				const childrenEl = treeItemEl.createDiv({
+					cls: 'tree-item-children',
 				});
-				if (entry.type === 'link') {
-					const iconEl = rowEl.createDiv({
-						cls: 'tree-item-icon monki-outline-page-icon',
-					});
-					setIcon(iconEl, 'file');
-				}
-				rowEl.createDiv({
-					cls: 'tree-item-inner',
-					text: entry.text,
+				parentStack.push({
+					childrenEl: childrenEl.createDiv({
+						cls: 'monki-outline-children-inner',
+					}),
+					depth: entry.depth,
 				});
-				this.renderedEntries.push({ entry, rowEl });
 			}
 		}
 		const pinnedRow = this.pinnedTarget
 			? this.renderedEntries.find(({ entry }) =>
 					this.isSameEntry(entry, this.pinnedTarget!),
-			  )?.rowEl
+				)?.rowEl
 			: undefined;
-		if (pinnedRow) {
+		if (pinnedRow && !this.isRowHidden(pinnedRow)) {
 			this.setActiveRow(pinnedRow);
 		} else {
 			this.pinnedTarget = undefined;
 			this.updateActiveEntry();
 		}
+	}
+
+	private renderEmptyState() {
+		const emptyStateEl = this.outlineEl?.createDiv({
+			cls: 'monki-outline-empty',
+		});
+		emptyStateEl?.createEl('img', {
+			cls: 'monki-outline-empty-image',
+			attr: {
+				alt: '',
+				draggable: 'false',
+				src: this.emptyStateImageUrl,
+			},
+		});
+		emptyStateEl?.createEl('p', {
+			cls: 'monki-outline-empty-text',
+			text: 'The dog ate the headings.',
+		});
+	}
+
+	private toggleCollapsed(entry: OutlineEntry) {
+		if (!this.selectedSourcePath) {
+			return;
+		}
+
+		const collapsedEntries =
+			this.collapsedEntriesBySource.get(this.selectedSourcePath) ??
+			new Set();
+		const entryKey = this.getEntryKey(entry);
+		if (collapsedEntries.has(entryKey)) {
+			collapsedEntries.delete(entryKey);
+		} else {
+			collapsedEntries.add(entryKey);
+		}
+		this.collapsedEntriesBySource.set(
+			this.selectedSourcePath,
+			collapsedEntries,
+		);
+
+		const renderedEntry = this.renderedEntries.find(
+			({ entry: candidate }) => this.isSameEntry(candidate, entry),
+		);
+		const treeItemEl = renderedEntry?.rowEl.parentElement;
+		const collapseIconEl = renderedEntry?.rowEl.querySelector<HTMLElement>(
+			'.tree-item-icon.collapse-icon',
+		);
+		const isCollapsed = collapsedEntries.has(entryKey);
+		treeItemEl?.toggleClass('is-collapsed', isCollapsed);
+		collapseIconEl?.setAttribute('aria-expanded', String(!isCollapsed));
+		collapseIconEl?.setAttribute(
+			'aria-label',
+			isCollapsed ? 'Expand item' : 'Collapse item',
+		);
+		this.pinnedTarget = undefined;
+		this.updateActiveEntry();
+	}
+
+	private isRowHidden(rowEl: HTMLElement) {
+		return Boolean(
+			rowEl
+				.closest('.tree-item-children')
+				?.closest('.tree-item.is-collapsed'),
+		);
+	}
+
+	private getEntryKey(entry: OutlineEntry) {
+		return `${entry.type}:${entry.line}:${entry.depth}:${entry.text}`;
 	}
 
 	private async populateRenderedSource(
@@ -493,14 +670,18 @@ export class MonkiOutlineView extends ItemView {
 		);
 	}
 
-	private updateActiveEntry(scrollLine = this.sourceView?.currentMode.getScroll()) {
+	private updateActiveEntry(
+		scrollLine = this.sourceView?.currentMode.getScroll(),
+	) {
 		let activeRow: HTMLElement | undefined;
 		if (scrollLine !== undefined) {
 			for (const { entry, rowEl } of this.renderedEntries) {
 				if (entry.line > scrollLine) {
 					break;
 				}
-				activeRow = rowEl;
+				if (!this.isRowHidden(rowEl)) {
+					activeRow = rowEl;
+				}
 			}
 		}
 

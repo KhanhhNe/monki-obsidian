@@ -8,6 +8,11 @@ Monki is an Obsidian plugin for navigating structured notes and writing checklis
 - Lists rendered headings and links to pages or folders in source order.
 - Tracks the active outline item while the source note scrolls.
 - Navigates to a heading or link when its outline item is selected.
+- Opens a monthly mood calendar in the editor with the **Show mood calendar** command.
+- Stores mood history as `#dd/mm/yyyy <mood icon> <text>` lines in `Mood Calendar.md`, preserving any detail text between records.
+- Includes a **Clear** action that removes a day's mood while keeping its date marker.
+- Provides six default moods that can be customized with the comma-separated `moodOptions` property.
+- Navigates between months and returns to the current month with **Today**.
 - Expands `x ` at the start of a line into an unchecked Markdown task.
 - Removes an empty task marker with Backspace when the cursor is directly after it.
 

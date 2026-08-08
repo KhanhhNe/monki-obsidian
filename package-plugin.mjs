@@ -3,7 +3,12 @@ import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { ZipArchive } from 'archiver';
 
-const releaseFiles = ['main.js', 'manifest.json', 'styles.css'];
+const releaseFiles = [
+	'main.js',
+	'manifest.json',
+	'styles.css',
+	'assets/outline-dog.png',
+];
 const manifest = JSON.parse(await readFile('manifest.json', 'utf8'));
 const outputDirectory = 'release';
 const outputPath = path.join(
