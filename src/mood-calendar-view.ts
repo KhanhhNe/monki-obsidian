@@ -1,4 +1,5 @@
 import {
+	App,
 	ItemView,
 	Menu,
 	normalizePath,
@@ -10,6 +11,8 @@ import {
 export const MOOD_CALENDAR_VIEW_TYPE = 'monki-mood-calendar';
 
 const MOOD_CALENDAR_NOTE_PATH = normalizePath('Mood Calendar.md');
+const MOOD_CALENDAR_ID_PROPERTY = 'monkiMoodCalendarId';
+const MOOD_CALENDAR_ID = 'monki-obsidian-mood-calendar-v1';
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DEFAULT_MOOD_OPTIONS = [
 	'😍 rất zuiii',
@@ -22,6 +25,68 @@ const DEFAULT_MOOD_OPTIONS = [
 const DEFAULT_MOOD_OPTIONS_PROPERTY = DEFAULT_MOOD_OPTIONS.join(', ');
 const MOOD_RECORD_PATTERN =
 	/^#(\d{2})\/(\d{2})\/(\d{4})(?:[ \t]+([^\r\n]*))?[ \t]*$/gm;
+
+export async function getOrCreateMoodCalendarDataFile(app: App) {
+	const identifiedFile = app.vault
+		.getMarkdownFiles()
+		.find(
+			(file) =>
+				app.metadataCache.getFileCache(file)?.frontmatter?.[
+					MOOD_CALENDAR_ID_PROPERTY
+				] === MOOD_CALENDAR_ID,
+		);
+	if (identifiedFile) {
+		return identifiedFile;
+	}
+
+	const existingFile = app.vault.getAbstractFileByPath(
+		MOOD_CALENDAR_NOTE_PATH,
+	);
+	if (existingFile instanceof TFile) {
+		return existingFile;
+	}
+	if (existingFile) {
+		throw new Error(
+			`Cannot create ${MOOD_CALENDAR_NOTE_PATH}: that path is already in use.`,
+		);
+	}
+
+	const legacyMovedFile = await findLegacyMovedDataFile(app);
+	if (legacyMovedFile) {
+		return legacyMovedFile;
+	}
+
+	return app.vault.create(
+		MOOD_CALENDAR_NOTE_PATH,
+		`---\n${MOOD_CALENDAR_ID_PROPERTY}: ${MOOD_CALENDAR_ID}\nmoodOptions: ${DEFAULT_MOOD_OPTIONS_PROPERTY}\n---\n\n# Mood calendar\n`,
+	);
+}
+
+async function findLegacyMovedDataFile(app: App) {
+	const candidates = app.vault
+		.getMarkdownFiles()
+		.filter(
+			(file) =>
+				file.path !== MOOD_CALENDAR_NOTE_PATH &&
+				file.name === 'Mood Calendar.md' &&
+				parseMoodOptions(
+					app.metadataCache.getFileCache(file)?.frontmatter
+						?.moodOptions,
+				).length > 0,
+		);
+
+	for (const file of candidates) {
+		const content = await app.vault.cachedRead(file);
+		if (
+			/^# Mood calendar\s*$/im.test(content) ||
+			parseMoodRecords(content).length > 0
+		) {
+			return file;
+		}
+	}
+
+	return undefined;
+}
 
 interface MoodRecord {
 	dateKey: string;
@@ -76,7 +141,8 @@ export class MoodCalendarView extends ItemView {
 			}
 		});
 
-		this.dataFile = await this.getOrCreateDataFile();
+		this.dataFile = await getOrCreateMoodCalendarDataFile(this.app);
+		await this.ensureDataFileIdentity();
 		await this.ensureMoodOptionsProperty();
 		await this.migrateLegacyMoods();
 		await this.app.vault.process(this.dataFile, ensureMoodRecordSpacing);
@@ -91,22 +157,26 @@ export class MoodCalendarView extends ItemView {
 		);
 	}
 
-	private async getOrCreateDataFile() {
-		const existingFile = this.app.vault.getAbstractFileByPath(
-			MOOD_CALENDAR_NOTE_PATH,
-		);
-		if (existingFile instanceof TFile) {
-			return existingFile;
-		}
-		if (existingFile) {
-			throw new Error(
-				`Cannot create ${MOOD_CALENDAR_NOTE_PATH}: that path is already in use.`,
-			);
+	private async ensureDataFileIdentity() {
+		if (!this.dataFile) {
+			return;
 		}
 
-		return this.app.vault.create(
-			MOOD_CALENDAR_NOTE_PATH,
-			`---\nmoodOptions: ${DEFAULT_MOOD_OPTIONS_PROPERTY}\n---\n\n# Mood calendar\n`,
+		const frontmatter = this.app.metadataCache.getFileCache(
+			this.dataFile,
+		)?.frontmatter;
+		if (frontmatter?.[MOOD_CALENDAR_ID_PROPERTY] === MOOD_CALENDAR_ID) {
+			return;
+		}
+
+		await this.app.fileManager.processFrontMatter(
+			this.dataFile,
+			(frontmatterValue: unknown) => {
+				if (isRecord(frontmatterValue)) {
+					frontmatterValue[MOOD_CALENDAR_ID_PROPERTY] =
+						MOOD_CALENDAR_ID;
+				}
+			},
 		);
 	}
 

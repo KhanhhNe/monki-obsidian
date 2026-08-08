@@ -1,5 +1,5 @@
 import { createWriteStream } from 'node:fs';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { ZipArchive } from 'archiver';
 
@@ -36,4 +36,5 @@ for (const file of releaseFiles) {
 await archive.finalize();
 await completed;
 
-console.log(`Created ${outputPath} (${archive.pointer()} bytes)`);
+const { size } = await stat(outputPath);
+console.log(`Created ${outputPath} (${(size / 1024).toFixed(2)} KB)`);

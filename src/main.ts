@@ -6,6 +6,7 @@ import {
 	processRenderedOutlineSection,
 } from './monki-outline-view';
 import {
+	getOrCreateMoodCalendarDataFile,
 	MOOD_CALENDAR_VIEW_TYPE,
 	MoodCalendarView,
 } from './mood-calendar-view';
@@ -63,6 +64,29 @@ export default class MonkiPlugin extends Plugin {
 					this.app.workspace.rightSplit.expand();
 					this.app.workspace.setActiveLeaf(leaf, { focus: true });
 				}
+			},
+		});
+
+		this.addCommand({
+			id: 'show-mood-data',
+			name: 'Show mood data',
+			callback: async () => {
+				const dataFile = await getOrCreateMoodCalendarDataFile(
+					this.app,
+				);
+				let leaf = this.app.workspace
+					.getLeavesOfType('markdown')
+					.find(
+						(candidate) =>
+							candidate.view instanceof MarkdownView &&
+							candidate.view.file === dataFile,
+					);
+				if (!leaf) {
+					leaf = this.app.workspace.getLeaf('tab');
+					await leaf.openFile(dataFile);
+				}
+
+				this.app.workspace.setActiveLeaf(leaf, { focus: true });
 			},
 		});
 
