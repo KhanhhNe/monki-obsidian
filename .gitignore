@@ -1,0 +1,21 @@
+# vscode
+.vscode
+
+# Intellij
+*.iml
+.idea
+
+# npm
+node_modules
+
+# Generated plugin bundle
+main.js
+
+# Sourcemaps
+*.map
+
+# Obsidian plugin data
+data.json
+
+# macOS Finder view state
+.DS_Store

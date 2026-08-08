@@ -1,0 +1,48 @@
+.monki-outline-list {
+	padding: var(--size-4-1) 0;
+}
+
+.monki-outline-item .tree-item-self {
+	--monki-outline-indent: calc(
+		var(--size-4-2) + var(--monki-outline-depth, 0) * var(--size-4-3)
+	);
+	padding-inline-start: var(--monki-outline-indent);
+}
+
+.monki-outline-depth-0 {
+	--monki-outline-depth: 0;
+}
+
+.monki-outline-depth-1 {
+	--monki-outline-depth: 1;
+}
+
+.monki-outline-depth-2 {
+	--monki-outline-depth: 2;
+}
+
+.monki-outline-depth-3 {
+	--monki-outline-depth: 3;
+}
+
+.monki-outline-depth-4 {
+	--monki-outline-depth: 4;
+}
+
+.monki-outline-depth-5,
+.monki-outline-depth-6 {
+	--monki-outline-depth: 5;
+}
+
+.monki-outline-link .tree-item-inner {
+	color: var(--text-muted);
+}
+
+.monki-outline-link .tree-item-self {
+	padding-inline-start: calc(var(--monki-outline-indent) + var(--size-4-4));
+}
+
+.monki-outline-item .tree-item-self.is-active {
+	background-color: var(--background-modifier-hover);
+	color: var(--text-accent);
+}
