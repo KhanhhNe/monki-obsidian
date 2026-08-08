@@ -30,7 +30,7 @@ const completed = new Promise((resolve, reject) => {
 archive.pipe(output);
 
 for (const file of releaseFiles) {
-	archive.file(file, { name: file });
+	archive.file(file, { name: path.posix.join(manifest.id, file) });
 }
 
 await archive.finalize();
