@@ -5,7 +5,7 @@ Monki is an Obsidian plugin for navigating structured notes and writing checklis
 ## Features
 
 - Opens a synchronized outline in the right sidebar with the **Open Monki Outline** command.
-- Lists rendered headings and links to pages or folders in source order.
+- Lists rendered headings and all internal links in source order, including links to pages that do not exist yet.
 - Tracks the active outline item while the source note scrolls.
 - Navigates to a heading or link when its outline item is selected.
 - Opens a monthly mood calendar in the editor with the **Show mood calendar** command.

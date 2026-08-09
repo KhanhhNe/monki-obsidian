@@ -1,15 +1,12 @@
 import {
 	App,
 	Component,
-	getLinkpath,
 	ItemView,
 	MarkdownPostProcessorContext,
 	MarkdownRenderer,
 	MarkdownView,
-	normalizePath,
 	setIcon,
 	TFile,
-	TFolder,
 	WorkspaceLeaf,
 } from 'obsidian';
 
@@ -27,8 +24,14 @@ interface OutlineSection {
 	lineStart: number;
 }
 
+interface OutlineParseResult {
+	entries: OutlineEntry[];
+	sourcePath: string | undefined;
+}
+
 const documentIdsBySource = new Map<string, string>();
 const sectionsBySource = new Map<string, Map<number, OutlineSection>>();
+const internalRenderCountsBySource = new Map<string, number>();
 
 export function invalidateOutlineSource(sourcePath: string) {
 	documentIdsBySource.delete(sourcePath);
@@ -40,9 +43,13 @@ export function processRenderedOutlineSection(
 	containerEl: HTMLElement,
 	context: MarkdownPostProcessorContext,
 ) {
+	if ((internalRenderCountsBySource.get(context.sourcePath) ?? 0) > 0) {
+		return false;
+	}
+
 	const sectionInfo = context.getSectionInfo(containerEl);
 	if (!sectionInfo) {
-		return;
+		return false;
 	}
 	if (documentIdsBySource.get(context.sourcePath) !== context.docId) {
 		documentIdsBySource.set(context.sourcePath, context.docId);
@@ -63,10 +70,6 @@ export function processRenderedOutlineSection(
 	)
 		.map((element): OutlineEntry | null => {
 			if (element.instanceOf(HTMLAnchorElement)) {
-				if (!isPageOrFolderLink(app, element, context.sourcePath)) {
-					return null;
-				}
-
 				const link = links.find(
 					(item) =>
 						item.position.start.line >= sectionInfo.lineStart &&
@@ -110,41 +113,7 @@ export function processRenderedOutlineSection(
 		lineStart: sectionInfo.lineStart,
 	});
 	sectionsBySource.set(context.sourcePath, sections);
-}
-
-function isPageOrFolderLink(
-	app: App,
-	link: HTMLAnchorElement,
-	sourcePath: string,
-) {
-	const href = link.dataset.href;
-	if (!href) {
-		return false;
-	}
-
-	const linkpath = getLinkpath(href);
-	const noteTarget = app.metadataCache.getFirstLinkpathDest(
-		linkpath,
-		sourcePath,
-	);
-	if (noteTarget?.extension === 'md') {
-		return true;
-	}
-
-	const directTarget = app.vault.getAbstractFileByPath(
-		normalizePath(linkpath),
-	);
-	if (directTarget instanceof TFolder) {
-		return true;
-	}
-
-	const separatorIndex = sourcePath.lastIndexOf('/');
-	const sourceFolder =
-		separatorIndex === -1 ? '' : sourcePath.slice(0, separatorIndex);
-	const relativeTarget = app.vault.getAbstractFileByPath(
-		normalizePath(sourceFolder ? `${sourceFolder}/${linkpath}` : linkpath),
-	);
-	return relativeTarget instanceof TFolder;
+	return true;
 }
 
 function processRenderedOutlineDocument(
@@ -162,10 +131,6 @@ function processRenderedOutlineDocument(
 	)
 		.map((element): OutlineEntry | null => {
 			if (element.instanceOf(HTMLAnchorElement)) {
-				if (!isPageOrFolderLink(app, element, sourceFile.path)) {
-					return null;
-				}
-
 				const linkIndex = remainingLinks.findIndex(
 					(link) => link.link === element.dataset.href,
 				);
@@ -212,12 +177,14 @@ function processRenderedOutlineDocument(
 
 export class MonkiOutlineView extends ItemView {
 	private outlineEl?: HTMLDivElement;
+	private lastParseResult?: OutlineParseResult;
 	private pinnedTarget?: OutlineEntry;
 	private renderedEntries: { entry: OutlineEntry; rowEl: HTMLElement }[] = [];
 	private readonly collapsedEntriesBySource = new Map<string, Set<string>>();
+	private completedSource?: { markdown: string; sourcePath: string };
+	private pendingSource?: { markdown: string; sourcePath: string };
 	private selectedSourcePath?: string;
 	private sourceView?: MarkdownView;
-	private editorChangeTimer?: number;
 	private sourceRenderGeneration = 0;
 	private readonly observedSourceViews = new WeakSet<MarkdownView>();
 	private readonly userScrollIntentViews = new WeakSet<MarkdownView>();
@@ -266,7 +233,25 @@ export class MonkiOutlineView extends ItemView {
 			}
 
 			this.pinnedTarget = renderedEntry.entry;
-			this.sourceView?.currentMode.applyScroll(line);
+			const mode = this.sourceView?.currentMode as
+				| { setHighlight?: (target: { line: number }) => void }
+				| undefined;
+			if (mode?.setHighlight) {
+				mode.setHighlight({ line });
+				this.setActiveRow(rowEl);
+				return;
+			}
+
+			const targetPosition = { line, ch: 0 };
+			const editor = this.sourceView?.editor;
+			editor?.setCursor(targetPosition);
+			editor?.scrollIntoView(
+				{
+					from: targetPosition,
+					to: { line, ch: editor.getLine(line).length },
+				},
+				true,
+			);
 			this.setActiveRow(rowEl);
 		});
 		this.registerEvent(
@@ -281,22 +266,14 @@ export class MonkiOutlineView extends ItemView {
 
 				if (leaf.view instanceof MarkdownView && leaf.view.file) {
 					this.setSourceView(leaf.view);
-				} else {
-					this.clearSourceView();
 				}
 			}),
 		);
 		this.registerEvent(
 			this.app.workspace.on('file-open', (file) => {
-				const markdownView = this.app.workspace
-					.getLeavesOfType('markdown')
-					.map((leaf) => leaf.view)
-					.find(
-						(view): view is MarkdownView =>
-							view instanceof MarkdownView && view.file === file,
-					);
-				if (markdownView) {
-					this.setSourceView(markdownView);
+				const latestView = this.getLatestSourceView();
+				if (latestView?.file === file) {
+					this.setSourceView(latestView);
 				}
 			}),
 		);
@@ -306,11 +283,7 @@ export class MonkiOutlineView extends ItemView {
 					return;
 				}
 
-				window.clearTimeout(this.editorChangeTimer);
-				this.editorChangeTimer = window.setTimeout(() => {
-					this.editorChangeTimer = undefined;
-					this.refreshTargets();
-				}, 1000);
+				this.refreshTargets(true);
 			}),
 		);
 		this.registerDomEvent(
@@ -318,8 +291,6 @@ export class MonkiOutlineView extends ItemView {
 			'focus',
 			() => this.refreshTargets(),
 		);
-		this.register(() => window.clearTimeout(this.editorChangeTimer));
-
 		this.app.workspace.onLayoutReady(() => {
 			if (this.sourceView) {
 				return;
@@ -357,79 +328,135 @@ export class MonkiOutlineView extends ItemView {
 			);
 	}
 
-	setSourceView(view: MarkdownView) {
-		if (view.file) {
-			window.clearTimeout(this.editorChangeTimer);
-			this.editorChangeTimer = undefined;
-			if (view.file.path !== this.selectedSourcePath) {
-				this.pinnedTarget = undefined;
-			}
-			this.sourceView = view;
-			this.selectedSourcePath = view.file.path;
-			this.observeSourceScroll(view);
-			this.renderOutline();
-			this.refreshTargets();
-		}
+	private getLatestSourceView() {
+		const recentView = this.app.workspace.getMostRecentLeaf(
+			this.app.workspace.rootSplit,
+		)?.view;
+		return recentView instanceof MarkdownView && recentView.file
+			? recentView
+			: undefined;
 	}
 
-	private clearSourceView() {
-		window.clearTimeout(this.editorChangeTimer);
-		this.editorChangeTimer = undefined;
-		this.sourceRenderGeneration++;
-		this.sourceView = undefined;
-		this.selectedSourcePath = undefined;
-		this.pinnedTarget = undefined;
+	setSourceView(view: MarkdownView, useEditorContents = false) {
+		const file = view.file;
+		if (
+			!file ||
+			(view === this.sourceView && file.path === this.selectedSourcePath)
+		) {
+			return;
+		}
+
+		if (file.path !== this.selectedSourcePath) {
+			this.pinnedTarget = undefined;
+		}
+		this.sourceView = view;
+		this.selectedSourcePath = file.path;
+		this.observeSourceScroll(view);
+		invalidateOutlineSource(file.path);
 		this.renderOutline();
+		this.refreshTargets(useEditorContents);
 	}
 
 	refreshSource(sourcePath: string) {
 		if (sourcePath === this.selectedSourcePath) {
-			this.renderOutline();
+			void this.refreshFileSourceIfChanged();
 		}
 	}
 
-	private renderOutline() {
-		this.outlineEl?.empty();
-		this.renderedEntries = [];
+	private async refreshFileSourceIfChanged() {
+		const view = this.sourceView;
+		const file = view?.file;
+		if (!view || !file) {
+			return;
+		}
 
+		const markdown = await this.app.vault.cachedRead(file);
+		if (
+			view !== this.sourceView ||
+			view.file !== file ||
+			file.path !== this.selectedSourcePath ||
+			(this.completedSource?.sourcePath === file.path &&
+				this.completedSource.markdown === markdown) ||
+			(this.pendingSource?.sourcePath === file.path &&
+				this.pendingSource.markdown === markdown)
+		) {
+			return;
+		}
+
+		invalidateOutlineSource(file.path);
+		const generation = ++this.sourceRenderGeneration;
+		await this.populateRenderedSource(view, file, markdown, generation);
+	}
+
+	private renderOutline() {
 		if (!this.outlineEl) {
 			return;
 		}
-		if (!this.selectedSourcePath) {
-			this.renderEmptyState();
+
+		const parseResult = this.getOutlineParseResult();
+		if (!parseResult) {
+			this.lastParseResult = undefined;
+			this.outlineEl.empty();
+			this.renderedEntries = [];
+			this.pinnedTarget = undefined;
 			return;
 		}
 
-		const sections = sectionsBySource.get(this.selectedSourcePath);
-		const entries = [...(sections?.values() ?? [])]
-			.sort((left, right) => left.lineStart - right.lineStart)
-			.flatMap((section) => section.entries);
+		const previousParseResult = this.lastParseResult;
+		this.lastParseResult = parseResult;
+		if (
+			previousParseResult &&
+			this.isSameParseResult(previousParseResult, parseResult)
+		) {
+			return;
+		}
+
+		const nextOutlineEl = this.outlineEl.ownerDocument.createElement('div');
+		const nextRenderedEntries: {
+			entry: OutlineEntry;
+			rowEl: HTMLElement;
+		}[] = [];
+		const entries = parseResult.entries;
 		if (entries.length === 0) {
-			this.renderEmptyState();
+			this.renderEmptyState(nextOutlineEl);
+			this.outlineEl.replaceChildren(
+				...Array.from(nextOutlineEl.childNodes),
+			);
+			this.renderedEntries = nextRenderedEntries;
+			this.pinnedTarget = undefined;
 			return;
 		}
 		const collapsedEntries =
-			this.collapsedEntriesBySource.get(this.selectedSourcePath) ??
+			this.collapsedEntriesBySource.get(parseResult.sourcePath!) ??
 			new Set();
 		const parentStack: {
 			childrenEl: HTMLElement;
 			depth: number;
-		}[] = [{ childrenEl: this.outlineEl, depth: -1 }];
+		}[] = [{ childrenEl: nextOutlineEl, depth: -1 }];
 		for (const [index, entry] of entries.entries()) {
 			const hasChildren = (entries[index + 1]?.depth ?? -1) > entry.depth;
+			const isCollapsible = entry.type === 'heading' && hasChildren;
 			const isCollapsed =
-				hasChildren && collapsedEntries.has(this.getEntryKey(entry));
-			while (parentStack.at(-1)!.depth >= entry.depth) {
+				isCollapsible && collapsedEntries.has(this.getEntryKey(entry));
+			while (parentStack[parentStack.length - 1]!.depth >= entry.depth) {
 				parentStack.pop();
 			}
-			const treeItemEl = parentStack.at(-1)!.childrenEl.createDiv({
+			const treeItemEl = parentStack[
+				parentStack.length - 1
+			]!.childrenEl.createDiv({
 				cls: `tree-item monki-outline-${entry.type}${isCollapsed ? ' is-collapsed' : ''}`,
 			});
 			const rowEl = treeItemEl.createDiv({
-				cls: `tree-item-self is-clickable${hasChildren ? ' mod-collapsible' : ''}`,
+				cls: `tree-item-self is-clickable${isCollapsible ? ' mod-collapsible' : ''}`,
 				attr: { 'data-line': String(entry.line) },
 			});
-			if (hasChildren) {
+			if (entry.type === 'link') {
+				const pageIconEl = rowEl.createDiv({
+					cls: 'tree-item-icon',
+					attr: { 'aria-hidden': 'true' },
+				});
+				setIcon(pageIconEl, 'file-minus');
+			} else if (isCollapsible) {
 				const collapseIconEl = rowEl.createDiv({
 					cls: 'tree-item-icon collapse-icon is-clickable',
 					attr: {
@@ -446,6 +473,22 @@ export class MonkiOutlineView extends ItemView {
 				cls: 'tree-item-inner',
 				text: entry.text,
 			});
+			nextRenderedEntries.push({ entry, rowEl });
+			if (hasChildren) {
+				const childrenEl = treeItemEl.createDiv({
+					cls: 'tree-item-children',
+				});
+				parentStack.push({
+					childrenEl: childrenEl.createDiv({
+						cls: 'monki-outline-children-inner',
+					}),
+					depth: entry.depth,
+				});
+			}
+		}
+		this.outlineEl.replaceChildren(...Array.from(nextOutlineEl.childNodes));
+		this.renderedEntries = nextRenderedEntries;
+		for (const { rowEl } of this.renderedEntries) {
 			const rowIndent =
 				rowEl.getBoundingClientRect().left -
 				this.outlineEl.getBoundingClientRect().left;
@@ -459,18 +502,6 @@ export class MonkiOutlineView extends ItemView {
 				`${24 + rowIndent}px`,
 				'important',
 			);
-			this.renderedEntries.push({ entry, rowEl });
-			if (hasChildren) {
-				const childrenEl = treeItemEl.createDiv({
-					cls: 'tree-item-children',
-				});
-				parentStack.push({
-					childrenEl: childrenEl.createDiv({
-						cls: 'monki-outline-children-inner',
-					}),
-					depth: entry.depth,
-				});
-			}
 		}
 		const pinnedRow = this.pinnedTarget
 			? this.renderedEntries.find(({ entry }) =>
@@ -485,11 +516,38 @@ export class MonkiOutlineView extends ItemView {
 		}
 	}
 
-	private renderEmptyState() {
-		const emptyStateEl = this.outlineEl?.createDiv({
+	private getOutlineParseResult(): OutlineParseResult | undefined {
+		const sourcePath = this.selectedSourcePath;
+		const sections = sourcePath ? sectionsBySource.get(sourcePath) : undefined;
+		if (!sourcePath || !sections) {
+			return undefined;
+		}
+
+		const entries = [...sections.values()]
+			.sort((left, right) => left.lineStart - right.lineStart)
+			.flatMap((section) => section.entries)
+			.map((entry) => ({ ...entry }));
+		return { entries, sourcePath };
+	}
+
+	private isSameParseResult(
+		left: OutlineParseResult,
+		right: OutlineParseResult,
+	) {
+		return (
+			left.sourcePath === right.sourcePath &&
+			left.entries.length === right.entries.length &&
+			left.entries.every((entry, index) =>
+				this.isSameEntry(entry, right.entries[index]!),
+			)
+		);
+	}
+
+	private renderEmptyState(containerEl: HTMLElement) {
+		const emptyStateEl = containerEl.createDiv({
 			cls: 'monki-outline-empty',
 		});
-		emptyStateEl?.createEl('img', {
+		emptyStateEl.createEl('img', {
 			cls: 'monki-outline-empty-image',
 			attr: {
 				alt: '',
@@ -497,7 +555,7 @@ export class MonkiOutlineView extends ItemView {
 				src: this.emptyStateImageUrl,
 			},
 		});
-		emptyStateEl?.createEl('p', {
+		emptyStateEl.createEl('p', {
 			cls: 'monki-outline-empty-text',
 			text: 'The dog ate the headings.',
 		});
@@ -552,25 +610,36 @@ export class MonkiOutlineView extends ItemView {
 		return `${entry.type}:${entry.line}:${entry.depth}:${entry.text}`;
 	}
 
-	private async populateRenderedSource(
+	private async populateFileSource(
 		view: MarkdownView,
+		file: TFile,
 		generation: number,
 	) {
-		const file = view.file;
-		if (!file) {
+		const markdown = await this.app.vault.cachedRead(file);
+		if (!this.isCurrentSource(view, file, generation)) {
+			return;
+		}
+		await this.populateRenderedSource(view, file, markdown, generation);
+	}
+
+	private async populateRenderedSource(
+		view: MarkdownView,
+		file: TFile,
+		markdown: string,
+		generation: number,
+	) {
+		if (!this.isCurrentSource(view, file, generation)) {
 			return;
 		}
 
-		const markdown = view.editor.getValue();
-		if (
-			generation !== this.sourceRenderGeneration ||
-			file.path !== this.selectedSourcePath
-		) {
-			return;
-		}
-
+		const pendingSource = { markdown, sourcePath: file.path };
+		this.pendingSource = pendingSource;
 		const renderComponent = new Component();
 		renderComponent.load();
+		internalRenderCountsBySource.set(
+			file.path,
+			(internalRenderCountsBySource.get(file.path) ?? 0) + 1,
+		);
 		try {
 			const renderedEl = createDiv();
 			await MarkdownRenderer.render(
@@ -580,29 +649,63 @@ export class MonkiOutlineView extends ItemView {
 				file.path,
 				renderComponent,
 			);
-			processRenderedOutlineDocument(this.app, renderedEl, file);
-			if (
-				generation === this.sourceRenderGeneration &&
-				file.path === this.selectedSourcePath
-			) {
-				this.renderOutline();
+			if (!this.isCurrentSource(view, file, generation)) {
+				return;
 			}
+			processRenderedOutlineDocument(this.app, renderedEl, file);
+			this.completedSource = { markdown, sourcePath: file.path };
+			this.renderOutline();
 		} finally {
+			if (this.pendingSource === pendingSource) {
+				this.pendingSource = undefined;
+			}
+			const remainingInternalRenders =
+				(internalRenderCountsBySource.get(file.path) ?? 1) - 1;
+			if (remainingInternalRenders === 0) {
+				internalRenderCountsBySource.delete(file.path);
+			} else {
+				internalRenderCountsBySource.set(
+					file.path,
+					remainingInternalRenders,
+				);
+			}
 			renderComponent.unload();
 		}
 	}
 
-	private refreshTargets() {
-		if (!this.sourceView?.file) {
+	private isCurrentSource(
+		view: MarkdownView,
+		file: TFile,
+		generation: number,
+	) {
+		return (
+			generation === this.sourceRenderGeneration &&
+			view === this.sourceView &&
+			view.file === file &&
+			file.path === this.selectedSourcePath
+		);
+	}
+
+	private refreshTargets(useEditorContents = false) {
+		const view = this.sourceView;
+		const file = view?.file;
+		if (!view || !file) {
 			return;
 		}
 
 		this.pinnedTarget = undefined;
-		invalidateOutlineSource(this.sourceView.file.path);
-		void this.populateRenderedSource(
-			this.sourceView,
-			++this.sourceRenderGeneration,
-		);
+		invalidateOutlineSource(file.path);
+		const generation = ++this.sourceRenderGeneration;
+		if (useEditorContents) {
+			void this.populateRenderedSource(
+				view,
+				file,
+				view.editor.getValue(),
+				generation,
+			);
+		} else {
+			void this.populateFileSource(view, file, generation);
+		}
 	}
 
 	private observeSourceScroll(view: MarkdownView) {

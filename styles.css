@@ -1,5 +1,8 @@
-.monki-outline-link .tree-item-inner {
-	text-decoration: underline;
+.view-header-title-container.hide-folder-note-title-in-path
+	.view-header-breadcrumb-separator.is-last-separator,
+.view-header-title-container.hide-folder-note-title-in-path
+	.view-header-title.path-is-folder-note {
+	display: none;
 }
 
 .monki-outline-heading > .tree-item-self.is-active,

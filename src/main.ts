@@ -28,7 +28,9 @@ export default class MonkiPlugin extends Plugin {
 			(leaf) => new MoodCalendarView(leaf),
 		);
 		this.registerMarkdownPostProcessor((element, context) => {
-			processRenderedOutlineSection(this.app, element, context);
+			if (!processRenderedOutlineSection(this.app, element, context)) {
+				return;
+			}
 			for (const leaf of this.app.workspace.getLeavesOfType(
 				MONKI_OUTLINE_VIEW_TYPE,
 			)) {
