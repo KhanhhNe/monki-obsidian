@@ -257,16 +257,22 @@ export class MonkiOutlineView extends ItemView {
 		this.registerEvent(
 			this.app.workspace.on('active-leaf-change', (leaf) => {
 				if (
-					!leaf ||
-					leaf === this.leaf ||
-					leaf.getRoot() !== this.app.workspace.rootSplit
+					leaf &&
+					leaf !== this.leaf &&
+					leaf.getRoot() === this.app.workspace.rootSplit &&
+					leaf.view instanceof MarkdownView &&
+					leaf.view.file
 				) {
+					this.setSourceView(leaf.view);
 					return;
 				}
 
-				if (leaf.view instanceof MarkdownView && leaf.view.file) {
-					this.setSourceView(leaf.view);
-				}
+				this.clearHiddenSource();
+			}),
+		);
+		this.registerEvent(
+			this.app.workspace.on('layout-change', () => {
+				this.clearHiddenSource();
 			}),
 		);
 		this.registerEvent(
@@ -289,7 +295,13 @@ export class MonkiOutlineView extends ItemView {
 		this.registerDomEvent(
 			this.containerEl.ownerDocument.defaultView ?? window,
 			'focus',
-			() => this.refreshTargets(),
+			() => {
+				if (this.clearHiddenSource()) {
+					return;
+				}
+
+				this.refreshTargets();
+			},
 		);
 		this.app.workspace.onLayoutReady(() => {
 			if (this.sourceView) {
@@ -314,7 +326,11 @@ export class MonkiOutlineView extends ItemView {
 		const recentView = this.app.workspace.getMostRecentLeaf(
 			this.app.workspace.rootSplit,
 		)?.view;
-		if (recentView instanceof MarkdownView && recentView.file) {
+		if (
+			recentView instanceof MarkdownView &&
+			recentView.file &&
+			recentView.containerEl.isShown()
+		) {
 			return recentView;
 		}
 
@@ -324,7 +340,9 @@ export class MonkiOutlineView extends ItemView {
 			.map((leaf) => leaf.view)
 			.find(
 				(view): view is MarkdownView =>
-					view instanceof MarkdownView && view.file !== null,
+					view instanceof MarkdownView &&
+					view.file !== null &&
+					view.containerEl.isShown(),
 			);
 	}
 
@@ -332,9 +350,35 @@ export class MonkiOutlineView extends ItemView {
 		const recentView = this.app.workspace.getMostRecentLeaf(
 			this.app.workspace.rootSplit,
 		)?.view;
-		return recentView instanceof MarkdownView && recentView.file
+		return recentView instanceof MarkdownView &&
+			recentView.file &&
+			recentView.containerEl.isShown()
 			? recentView
 			: undefined;
+	}
+
+	private isSourceVisible() {
+		const view = this.sourceView;
+		return Boolean(
+			view?.file &&
+				view.leaf.view === view &&
+				view.leaf.getRoot() === this.app.workspace.rootSplit &&
+				view.containerEl.isShown(),
+		);
+	}
+
+	private clearHiddenSource() {
+		if (!this.sourceView || this.isSourceVisible()) {
+			return false;
+		}
+
+		this.sourceRenderGeneration++;
+		this.sourceView = undefined;
+		this.selectedSourcePath = undefined;
+		this.completedSource = undefined;
+		this.pendingSource = undefined;
+		this.renderOutline();
+		return true;
 	}
 
 	setSourceView(view: MarkdownView, useEditorContents = false) {
@@ -364,6 +408,10 @@ export class MonkiOutlineView extends ItemView {
 	}
 
 	private async refreshFileSourceIfChanged() {
+		if (this.clearHiddenSource()) {
+			return;
+		}
+
 		const view = this.sourceView;
 		const file = view?.file;
 		if (!view || !file) {
@@ -687,6 +735,10 @@ export class MonkiOutlineView extends ItemView {
 	}
 
 	private refreshTargets(useEditorContents = false) {
+		if (this.clearHiddenSource()) {
+			return;
+		}
+
 		const view = this.sourceView;
 		const file = view?.file;
 		if (!view || !file) {
